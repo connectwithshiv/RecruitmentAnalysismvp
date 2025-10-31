@@ -13,6 +13,7 @@ const OneViewDashboard = ({ data }) => {
   const [showFilters, setShowFilters] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
     clicks: true,
+    dataGiven: true,
     forms: true,
     audio: true,
     eligibility: true,
@@ -67,6 +68,131 @@ const OneViewDashboard = ({ data }) => {
     // Total Clicks (candidates with date of apply)
     const totalClicks = filteredData.filter(d => d.dateOfApply && d.dateOfApply !== '' && d.dateOfApply !== '-').length;
     
+    // Total Data Given (candidates with date of data given)
+    // Use the SAME filter pattern as filteredData, but filter by Data Given date instead of Apply Date
+    const dataGivenFiltered = data.filter(item => {
+      // Apply non-date filters first (same as filteredData)
+      if (selectedFilters.platform !== 'all' && item.platform !== selectedFilters.platform) return false;
+      if (selectedFilters.assignTo !== 'all' && item.assignTo !== selectedFilters.assignTo) return false;
+      if (selectedFilters.position !== 'all' && item.position !== selectedFilters.position) return false;
+      
+      if (selectedFilters.experience !== 'all') {
+        const exp = item.exp || 0;
+        if (selectedFilters.experience === 'Fresher' && exp > 0) return false;
+        if (selectedFilters.experience === '1-3 years' && (exp < 1 || exp > 3)) return false;
+        if (selectedFilters.experience === '3-5 years' && (exp < 3 || exp > 5)) return false;
+        if (selectedFilters.experience === '5+ years' && exp < 5) return false;
+      }
+
+      // Check if Data Given date exists (either raw string dateOfDataGiven or parsed dateDataGivenDate)
+      const dateGivenStr = item.dateOfDataGiven;
+      const dateGivenValue = dateGivenStr != null ? String(dateGivenStr).trim() : '';
+      const hasDataGivenStr = dateGivenValue !== '' && 
+                              dateGivenValue !== '-' &&
+                              dateGivenValue.toLowerCase() !== 'n/a' &&
+                              dateGivenValue.toLowerCase() !== 'na';
+      
+      // If no Data Given date exists at all, exclude this entry
+      if (!hasDataGivenStr && !item.dateDataGivenDate) return false;
+
+      // Apply date filters using Data Given date (instead of Apply Date like filteredData does)
+      // The dateDataGivenDate should already be parsed by apiService.jsx parseDateSafe function
+      if (selectedFilters.dateFrom || selectedFilters.dateTo) {
+        // Use the parsed dateDataGivenDate (already parsed by apiService)
+        const dataGivenDate = item.dateDataGivenDate;
+        
+        // If we have a parsed date, apply date filters strictly
+        if (dataGivenDate) {
+          if (selectedFilters.dateFrom) {
+            const filterDateFrom = new Date(selectedFilters.dateFrom);
+            filterDateFrom.setHours(0, 0, 0, 0);
+            const itemDate = new Date(dataGivenDate);
+            itemDate.setHours(0, 0, 0, 0);
+            if (itemDate < filterDateFrom) return false;
+          }
+          
+          if (selectedFilters.dateTo) {
+            const filterDateTo = new Date(selectedFilters.dateTo);
+            filterDateTo.setHours(23, 59, 59, 999);
+            const itemDate = new Date(dataGivenDate);
+            itemDate.setHours(0, 0, 0, 0);
+            if (itemDate > filterDateTo) return false;
+          }
+        } else {
+          // If no parsed date but date filter is set, try to parse the raw string
+          // This handles cases where parseDateSafe might have failed but date string exists
+          if (hasDataGivenStr) {
+            // Try parsing formats like "30 OCT", "30-10-2024", etc.
+            let parsedDate = null;
+            try {
+              // Try direct parsing
+              let testDate = new Date(dateGivenValue);
+              if (!isNaN(testDate.getTime()) && testDate.getFullYear() > 2000 && testDate.getFullYear() < 2030) {
+                parsedDate = testDate;
+              } else {
+                // Try "DD MON" or "DD MON YYYY" format
+                const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+                for (let i = 0; i < monthNames.length; i++) {
+                  const monthPattern = new RegExp(`(\\d+)\\s+${monthNames[i]}(?:\\s+(\\d{4}))?`, 'i');
+                  const match = dateGivenValue.match(monthPattern);
+                  if (match) {
+                    const day = parseInt(match[1], 10);
+                    const year = match[2] ? parseInt(match[2], 10) : new Date().getFullYear();
+                    if (!isNaN(day) && day > 0 && day <= 31 && year > 2000 && year < 2030) {
+                      parsedDate = new Date(year, i, day);
+                      break;
+                    }
+                  }
+                }
+                
+                // Try "DD-MM-YYYY" format
+                if (!parsedDate) {
+                  const dashParts = dateGivenValue.split("-");
+                  if (dashParts.length === 3) {
+                    const d = parseInt(dashParts[0], 10);
+                    const m = parseInt(dashParts[1], 10) - 1;
+                    const y = parseInt(dashParts[2], 10);
+                    if (!isNaN(d) && !isNaN(m) && !isNaN(y) && y > 2000 && y < 2030) {
+                      parsedDate = new Date(y, m, d);
+                    }
+                  }
+                }
+              }
+              
+              // If we successfully parsed, apply filters
+              if (parsedDate && !isNaN(parsedDate.getTime())) {
+                if (selectedFilters.dateFrom) {
+                  const filterDateFrom = new Date(selectedFilters.dateFrom);
+                  filterDateFrom.setHours(0, 0, 0, 0);
+                  parsedDate.setHours(0, 0, 0, 0);
+                  if (parsedDate < filterDateFrom) return false;
+                }
+                
+                if (selectedFilters.dateTo) {
+                  const filterDateTo = new Date(selectedFilters.dateTo);
+                  filterDateTo.setHours(23, 59, 59, 999);
+                  parsedDate.setHours(0, 0, 0, 0);
+                  if (parsedDate > filterDateTo) return false;
+                }
+              } else {
+                // Can't parse the date, include it anyway to avoid showing zero
+                // This ensures entries with dates like "30 OCT" are not excluded
+              }
+            } catch (e) {
+              // Parsing failed, include entry anyway
+            }
+          } else {
+            // No date string and no parsed date - exclude
+            return false;
+          }
+        }
+      }
+      
+      return true;
+    });
+    
+    const totalDataGiven = dataGivenFiltered.length;
+    
     // Total Form Fill
     const totalFormFill = filteredData.filter(d => d.jotFormFilled && d.jotFormFilled !== '' && d.jotFormFilled !== '-').length;
     
@@ -108,6 +234,28 @@ const OneViewDashboard = ({ data }) => {
     const clicksByPosition = createBreakdown(clicksFilter, 'position');
     const clicksByAssignee = createBreakdown(clicksFilter, 'assignTo');
 
+    // Data Given breakdowns - use the same filtered data as totalDataGiven
+    const createDataGivenBreakdown = (groupBy) => {
+      const breakdown = {};
+      
+      dataGivenFiltered.forEach(item => {
+        const key = item[groupBy] || 'Unknown';
+        breakdown[key] = (breakdown[key] || 0) + 1;
+      });
+      
+      return Object.entries(breakdown)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => ({
+          name,
+          count,
+          percentage: dataGivenFiltered.length > 0 ? ((count / dataGivenFiltered.length) * 100).toFixed(1) : '0.0'
+        }));
+    };
+    
+    const dataGivenByPlatform = createDataGivenBreakdown('platform');
+    const dataGivenByPosition = createDataGivenBreakdown('position');
+    const dataGivenByAssignee = createDataGivenBreakdown('assignTo');
+
     // Form fill breakdowns
     const formFilter = (d) => d.jotFormFilled && d.jotFormFilled !== '' && d.jotFormFilled !== '-';
     const formsByPlatform = createBreakdown(formFilter, 'platform');
@@ -133,6 +281,7 @@ const OneViewDashboard = ({ data }) => {
     const hiresByAssignee = createBreakdown(hireFilter, 'assignTo');
 
     // Conversion rates
+    const clickToDataGivenRate = totalClicks > 0 ? ((totalDataGiven / totalClicks) * 100).toFixed(1) : '0.0';
     const clickToFormRate = totalClicks > 0 ? ((totalFormFill / totalClicks) * 100).toFixed(1) : '0.0';
     const formToAudioRate = totalFormFill > 0 ? ((totalAudio / totalFormFill) * 100).toFixed(1) : '0.0';
     const audioToEligibilityRate = totalAudio > 0 ? ((totalEligibility / totalAudio) * 100).toFixed(1) : '0.0';
@@ -144,6 +293,11 @@ const OneViewDashboard = ({ data }) => {
       clicksByPlatform,
       clicksByPosition,
       clicksByAssignee,
+      
+      totalDataGiven,
+      dataGivenByPlatform,
+      dataGivenByPosition,
+      dataGivenByAssignee,
       
       totalFormFill,
       formsByPlatform,
@@ -165,13 +319,14 @@ const OneViewDashboard = ({ data }) => {
       hiresByPosition,
       hiresByAssignee,
       
+      clickToDataGivenRate,
       clickToFormRate,
       formToAudioRate,
       audioToEligibilityRate,
       eligibilityToHireRate,
       overallConversionRate
     };
-  }, [filteredData]);
+  }, [filteredData, data, selectedFilters]);
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
@@ -431,10 +586,16 @@ const OneViewDashboard = ({ data }) => {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-6 space-y-4">
         {/* Summary Cards Row */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-2 md:gap-3">
           <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg p-3 shadow-lg border-2 border-blue-400">
             <p className="text-xs text-blue-100 mb-1 font-semibold">Total Clicks</p>
             <p className="text-2xl md:text-3xl font-black text-white">{metrics.totalClicks}</p>
+          </div>
+
+          <div className="bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-lg p-3 shadow-lg border-2 border-cyan-400">
+            <p className="text-xs text-cyan-100 mb-1 font-semibold">Data Given</p>
+            <p className="text-2xl md:text-3xl font-black text-white">{metrics.totalDataGiven}</p>
+            <p className="text-xs text-cyan-100 font-medium">{metrics.clickToDataGivenRate}%</p>
           </div>
 
           <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg p-3 shadow-lg border-2 border-green-400">
@@ -473,10 +634,14 @@ const OneViewDashboard = ({ data }) => {
             <TrendingUp className="h-5 w-5 text-blue-600" />
             Quick Conversion Matrix
           </h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
             <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-3 border-2 border-blue-200">
-              <p className="text-xs text-blue-800 font-semibold mb-1">Click → Form</p>
-              <p className="text-xl md:text-2xl font-black text-blue-700">{metrics.clickToFormRate}%</p>
+              <p className="text-xs text-blue-800 font-semibold mb-1">Click → Data</p>
+              <p className="text-xl md:text-2xl font-black text-blue-700">{metrics.clickToDataGivenRate}%</p>
+            </div>
+            <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-lg p-3 border-2 border-cyan-200">
+              <p className="text-xs text-cyan-800 font-semibold mb-1">Click → Form</p>
+              <p className="text-xl md:text-2xl font-black text-cyan-700">{metrics.clickToFormRate}%</p>
             </div>
             <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-3 border-2 border-green-200">
               <p className="text-xs text-green-800 font-semibold mb-1">Form → Audio</p>
@@ -510,6 +675,20 @@ const OneViewDashboard = ({ data }) => {
             teamData={metrics.clicksByAssignee}
             sectionKey="clicks"
             conversionLabel="Data extracted and assigned"
+          />
+
+          {/* Total Data Given Section */}
+          <MetricSection
+            title="Total Data Given"
+            total={metrics.totalDataGiven}
+            icon={ClipboardCheck}
+            color="from-cyan-500 to-cyan-600"
+            platformData={metrics.dataGivenByPlatform}
+            positionData={metrics.dataGivenByPosition}
+            teamData={metrics.dataGivenByAssignee}
+            sectionKey="dataGiven"
+            conversionRate={metrics.clickToDataGivenRate}
+            conversionLabel="From total clicks"
           />
 
           {/* Total Form Fill Section */}

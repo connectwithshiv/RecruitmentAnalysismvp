@@ -28,14 +28,69 @@ export const useRecruitmentData = () => {
 
   const parseDateSafe = (s) => {
     if (!s || s === "" || s === "-") return null;
+    
+    // Try direct Date parsing first
     let dt = new Date(s);
     if (!isNaN(dt) && dt.getFullYear() > 2000 && dt.getFullYear() < 2030) return dt;
-    const parts = s.split("/");
-    if (parts.length === 3) {
-      const d = parseInt(parts[0], 10), m = parseInt(parts[1], 10) - 1, y = parseInt(parts[2], 10);
-      dt = new Date(y, m, d);
-      if (!isNaN(dt) && dt.getFullYear() > 2000 && dt.getFullYear() < 2030) return dt;
+    
+    // Try DD/MM/YYYY or MM/DD/YYYY format
+    const slashParts = s.split("/");
+    if (slashParts.length === 3) {
+      const d = parseInt(slashParts[0], 10);
+      const m = parseInt(slashParts[1], 10) - 1;
+      const y = parseInt(slashParts[2], 10);
+      if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+        dt = new Date(y, m, d);
+        if (!isNaN(dt) && dt.getFullYear() > 2000 && dt.getFullYear() < 2030) return dt;
+        // Try MM/DD/YYYY format if DD/MM/YYYY didn't work
+        dt = new Date(y, d - 1, m + 1);
+        if (!isNaN(dt) && dt.getFullYear() > 2000 && dt.getFullYear() < 2030) return dt;
+      }
     }
+    
+    // Try DD-MM-YYYY format
+    const dashParts = s.split("-");
+    if (dashParts.length === 3) {
+      const d = parseInt(dashParts[0], 10);
+      const m = parseInt(dashParts[1], 10) - 1;
+      const y = parseInt(dashParts[2], 10);
+      if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+        dt = new Date(y, m, d);
+        if (!isNaN(dt) && dt.getFullYear() > 2000 && dt.getFullYear() < 2030) return dt;
+      }
+    }
+    
+    // Try formats like "30 OCT", "30 OCT 2024", "OCT 30", "OCT 30 2024"
+    const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    
+    // Try "DD MON" or "DD MON YYYY" format (e.g., "30 OCT" or "30 OCT 2024")
+    for (let i = 0; i < monthNames.length; i++) {
+      const monthPattern = new RegExp(`(\\d+)\\s+${monthNames[i]}(?:\\s+(\\d{4}))?`, 'i');
+      const match = s.match(monthPattern);
+      if (match) {
+        const day = parseInt(match[1], 10);
+        const year = match[2] ? parseInt(match[2], 10) : new Date().getFullYear();
+        if (!isNaN(day) && day > 0 && day <= 31 && year > 2000 && year < 2030) {
+          dt = new Date(year, i, day);
+          if (!isNaN(dt) && dt.getFullYear() > 2000 && dt.getFullYear() < 2030) return dt;
+        }
+      }
+    }
+    
+    // Try "MON DD" or "MON DD YYYY" format (e.g., "OCT 30" or "OCT 30 2024")
+    for (let i = 0; i < monthNames.length; i++) {
+      const monthPattern = new RegExp(`${monthNames[i]}\\s+(\\d+)(?:\\s+(\\d{4}))?`, 'i');
+      const match = s.match(monthPattern);
+      if (match) {
+        const day = parseInt(match[1], 10);
+        const year = match[2] ? parseInt(match[2], 10) : new Date().getFullYear();
+        if (!isNaN(day) && day > 0 && day <= 31 && year > 2000 && year < 2030) {
+          dt = new Date(year, i, day);
+          if (!isNaN(dt) && dt.getFullYear() > 2000 && dt.getFullYear() < 2030) return dt;
+        }
+      }
+    }
+    
     return null;
   };
 
